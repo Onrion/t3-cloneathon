@@ -1,445 +1,460 @@
-import { Button } from "@/components/ui/button";
-import { CountdownTimer } from "@/components/countdown-timer";
+"use client";
+
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  CheckCircle,
-  Trophy,
-  Users,
-  Calendar,
-  Code,
+  Sidebar,
+  SidebarProvider,
+  SidebarTrigger,
+  SidebarContent,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  SidebarFooter,
+  SidebarInset,
+} from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
   MessageSquare,
-  ImageIcon,
-  Search,
-  GitBranch,
-  Share,
-  Zap,
-  Sparkles,
-  CloudUploadIcon,
+  Plus,
+  Send,
+  Trash2,
+  Bot,
+  User
 } from "lucide-react";
-import Link from "next/link";
-import Image from "next/image";
+import { cn } from "@/lib/utils";
 
-export default function HomePage() {
+// --- Firebase Integration ---
+import { initializeApp } from 'firebase/app';
+import {
+  getAuth,
+  signInAnonymously,
+  onAuthStateChanged,
+  User as FirebaseUser
+} from 'firebase/auth';
+import {
+  getFirestore,
+  doc,
+  setDoc,
+  addDoc,
+  collection,
+  query,
+  onSnapshot,
+  orderBy,
+  Timestamp,
+  deleteDoc
+} from 'firebase/firestore';
+
+// --- Inlined ThemeProvider to fix path resolution issue ---
+import { ThemeProvider as NextThemesProvider, type ThemeProviderProps } from "next-themes";
+
+function ThemeProvider({ children, ...props }: ThemeProviderProps) {
+  return <NextThemesProvider {...props}>{children}</NextThemesProvider>;
+}
+
+// --- MOCK Firebase Config ---
+// This should be replaced with your actual Firebase config.
+// The __firebase_config global will be provided in the execution environment.
+const firebaseConfig = typeof __firebase_config !== 'undefined'
+  ? JSON.parse(__firebase_config)
+  : {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_AUTH_DOMAIN",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_STORAGE_BUCKET",
+    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+
+// --- Firebase App Initialization ---
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// --- Types ---
+interface Message {
+  id: string;
+  text: string;
+  role: 'user' | 'model';
+  timestamp: Timestamp;
+}
+
+interface Chat {
+  id: string;
+  title: string;
+  createdAt: Timestamp;
+}
+
+// --- Main App Component ---
+export default function App() {
   return (
-    <div className="min-h-screen bg-black">
-      {/* Hero Section */}
-      <div className="container mx-auto px-4 py-16">
-        <div className="text-center mb-16">
-          <div className="inline-flex items-center gap-2 bg-white/5 text-white/70 px-4 py-2 rounded-full text-sm font-medium mb-6">
-            <Sparkles className="w-4 h-4" />
-            Open Source Competition
-          </div>
+    <ThemeProvider defaultTheme="dark" storageKey="t3-chat-clone-theme">
+      <SidebarProvider defaultOpen>
+        <ChatApp />
+      </SidebarProvider>
+    </ThemeProvider>
+  );
+}
 
-          <h1 className="text-6xl md:text-7xl font-bold text-white mb-6 tracking-tight">
-            T3 Chat
-            <span className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent block">
-              Cloneathon
-            </span>
-          </h1>
+// --- Chat Application Component ---
+function ChatApp() {
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isAuthReady, setIsAuthReady] = useState(false);
 
-          <p className="text-xl text-white/70 mb-8 max-w-2xl mx-auto leading-relaxed">
-            It's like a hackathon, but everyone's building a T3 Chat clone.
-          </p>
+  const appId = typeof __app_id !== 'undefined' ? __app_id : 't3-chat-clone';
 
-          {/* Subtle Countdown Timer */}
-          <div className="mb-8">
-            <CountdownTimer />
-          </div>
-        </div>
+  // --- Authentication Effect ---
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        setUser(firebaseUser);
+      } else {
+        await signInAnonymously(auth);
+      }
+      setIsAuthReady(true);
+    });
+    return () => unsubscribe();
+  }, []);
 
-        {/* Competition Details */}
-        <div className="grid md:grid-cols-3 gap-8 mb-20">
-          <div className="flex flex-col items-center text-center">
-            <Calendar className="w-12 h-12 text-white/70 mb-4" />
-            <h3 className="text-white text-2xl font-medium mb-2">1 Week</h3>
-            <p className="text-white/50">
-              Complete your clone within the competition timeframe
-            </p>
-          </div>
+  const handleNewChat = useCallback(async () => {
+    if (!user) return;
+    setIsLoading(true);
+    const chatsCollectionPath = `/artifacts/${appId}/users/${user.uid}/chats`;
+    try {
+      const newChat = {
+        title: "New Chat",
+        createdAt: Timestamp.now(),
+      };
+      const docRef = await addDoc(collection(db, chatsCollectionPath), newChat);
+      setActiveChatId(docRef.id);
+    } catch (error) {
+      console.error("Error creating new chat:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user, appId]);
 
-          <div className="flex flex-col items-center text-center">
-            <Trophy className="w-12 h-12 text-white/70 mb-4" />
-            <h3 className="text-white text-2xl font-medium mb-2">$10,000+</h3>
-            <p className="text-white/50">
-              Total prize pool for winners and participants
-            </p>
-          </div>
 
-          <div className="flex flex-col items-center text-center">
-            <Code className="w-12 h-12 text-white/70 mb-4" />
-            <h3 className="text-white text-2xl font-medium mb-2">
-              Open Source
-            </h3>
-            <p className="text-white/50">
-              All submissions must be open source and publicly available
-            </p>
-          </div>
-        </div>
+  // --- Fetch Chats Effect ---
+  useEffect(() => {
+    if (!user || !isAuthReady) return;
 
-        {/* Prizes Section */}
-        <div className="mb-20">
-          <h2 className="text-4xl font-bold text-white text-center mb-12">
-            Prizes & Rewards
-          </h2>
+    const chatsCollectionPath = `/artifacts/${appId}/users/${user.uid}/chats`;
+    const q = query(collection(db, chatsCollectionPath), orderBy("createdAt", "desc"));
 
-          <div className="max-w-5xl mx-auto">
-            {/* Main Prize Pool */}
-            <div className="bg-gradient-to-r from-purple-600/20 to-pink-600/20 border border-purple-500/30 rounded-2xl p-8 mb-8">
-              <div className="text-center mb-8">
-                <h3 className="text-2xl font-bold text-white mb-2">
-                  Cash Prizes
-                </h3>
-                <p className="text-white/70">
-                  Awarded to the top 3 submissions
-                </p>
-              </div>
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedChats: Chat[] = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as Chat));
+      setChats(fetchedChats);
+      
+      if (!activeChatId && fetchedChats.length > 0) {
+        setActiveChatId(fetchedChats[0].id);
+      } else if (snapshot.docs.length === 0) {
+        // If there are no chats, create a new one.
+        handleNewChat();
+      }
+    });
 
-              <div className="grid md:grid-cols-3 gap-6">
-                <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-6 text-center relative">
-                  <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
-                    <div className="bg-yellow-400 text-black px-3 py-1 rounded-full text-xs font-bold">
-                      🥇 WINNER
-                    </div>
-                  </div>
-                  <Trophy className="w-10 h-10 text-yellow-400 mx-auto mb-3 mt-2" />
-                  <h4 className="text-white font-bold mb-2">1st Place</h4>
-                  <div className="text-4xl font-bold text-white mb-1">
-                    $5,000
-                  </div>
-                  <p className="text-white/60 text-sm">Grand Prize Winner</p>
+    return () => unsubscribe();
+  }, [user, appId, isAuthReady, handleNewChat, activeChatId]);
+
+  // --- Fetch Messages Effect ---
+  useEffect(() => {
+    if (!activeChatId || !user) {
+        setMessages([]);
+        return;
+    };
+
+    const messagesCollectionPath = `/artifacts/${appId}/users/${user.uid}/chats/${activeChatId}/messages`;
+    const q = query(collection(db, messagesCollectionPath), orderBy("timestamp", "asc"));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedMessages: Message[] = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as Message));
+      setMessages(fetchedMessages);
+    });
+
+    return () => unsubscribe();
+  }, [activeChatId, user, appId]);
+
+
+  // --- Helper Functions ---
+  const handleDeleteChat = async (chatId: string) => {
+      if (!user) return;
+      try {
+          const chatDocPath = `/artifacts/${appId}/users/${user.uid}/chats/${chatId}`;
+          // In a real app, deleting subcollections requires a Cloud Function.
+          // For this demo, we'll just delete the chat doc.
+          await deleteDoc(doc(db, chatDocPath));
+          
+          if(activeChatId === chatId) {
+            const remainingChats = chats.filter(c => c.id !== chatId);
+            setActiveChatId(remainingChats.length > 0 ? remainingChats[0].id : null);
+          }
+      } catch (error) {
+          console.error("Error deleting chat:", error);
+      }
+  };
+
+  const handleSendMessage = async () => {
+    if (!input.trim() || !user || !activeChatId || isLoading) return;
+
+    const userInput = input.trim();
+    setInput("");
+    setIsLoading(true);
+
+    const messagesCollectionPath = `/artifacts/${appId}/users/${user.uid}/chats/${activeChatId}/messages`;
+
+    // 1. Add user message to Firestore
+    const userMessage: Omit<Message, 'id'> = {
+      text: userInput,
+      role: 'user',
+      timestamp: Timestamp.now(),
+    };
+    await addDoc(collection(db, messagesCollectionPath), userMessage);
+
+    // 2. Call Gemini API
+    try {
+        const chatHistory = messages.map(m => ({
+            role: m.role,
+            parts: [{ text: m.text }]
+        }));
+        chatHistory.push({ role: "user", parts: [{ text: userInput }] });
+
+        const payload = { contents: chatHistory };
+        const apiKey = ""; // Leave empty for Gemini Flash
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            throw new Error(`API call failed with status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        let modelResponse = "Sorry, I couldn't generate a response.";
+        if (result.candidates && result.candidates.length > 0 &&
+            result.candidates[0].content && result.candidates[0].content.parts &&
+            result.candidates[0].content.parts.length > 0) {
+            modelResponse = result.candidates[0].content.parts[0].text;
+        }
+
+        // 3. Add model response to Firestore
+        const modelMessage: Omit<Message, 'id'> = {
+            text: modelResponse,
+            role: 'model',
+            timestamp: Timestamp.now(),
+        };
+        await addDoc(collection(db, messagesCollectionPath), modelMessage);
+
+    } catch (error) {
+        console.error("Error calling Gemini API or saving message:", error);
+        const errorMessage: Omit<Message, 'id'> = {
+            text: `Error: ${error instanceof Error ? error.message : "An unknown error occurred."}`,
+            role: 'model',
+            timestamp: Timestamp.now(),
+        };
+        await addDoc(collection(db, messagesCollectionPath), errorMessage);
+    } finally {
+        setIsLoading(false);
+    }
+  };
+
+
+  if (!isAuthReady) {
+      return <div className="flex items-center justify-center h-screen w-full bg-background text-foreground">Loading...</div>
+  }
+
+  return (
+    <div className="flex h-screen w-full bg-background">
+      <Sidebar>
+        <SidebarHeader>
+          <Button variant="ghost" className="w-full justify-start gap-2" onClick={handleNewChat} disabled={isLoading}>
+            <Plus className="size-4" />
+            <span>New Chat</span>
+          </Button>
+        </SidebarHeader>
+
+        <SidebarContent className="p-2">
+            <ScrollArea className="h-full">
+                <SidebarMenu>
+                    {chats.map((chat) => (
+                    <SidebarMenuItem key={chat.id}>
+                        <SidebarMenuButton
+                        onClick={() => setActiveChatId(chat.id)}
+                        isActive={activeChatId === chat.id}
+                        className="w-full justify-start gap-2"
+                        >
+                        <MessageSquare className="size-4" />
+                        <span className="truncate flex-1">{chat.title}</span>
+                        </SidebarMenuButton>
+                        <Button variant="ghost" size="icon" className="absolute right-1 top-1.5 h-7 w-7" onClick={() => handleDeleteChat(chat.id)}>
+                            <Trash2 className="size-4" />
+                        </Button>
+                    </SidebarMenuItem>
+                    ))}
+                </SidebarMenu>
+            </ScrollArea>
+        </SidebarContent>
+
+        <SidebarFooter>
+            {user && (
+                 <div className="flex items-center gap-2 p-2 border-t border-border">
+                    <Avatar className="h-8 w-8">
+                        <AvatarImage src={user.photoURL || undefined} />
+                        <AvatarFallback><User /></AvatarFallback>
+                    </Avatar>
+                    <p className="text-sm text-muted-foreground truncate">
+                        {user.isAnonymous ? "Anonymous User" : user.uid.substring(0,8)}
+                    </p>
                 </div>
+            )}
+        </SidebarFooter>
+      </Sidebar>
 
-                <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-6 text-center relative">
-                  <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
-                    <div className="bg-gray-300 text-black px-3 py-1 rounded-full text-xs font-bold">
-                      🥈 RUNNER-UP
+      <SidebarInset className="flex flex-col">
+        <div className="flex-1 overflow-hidden">
+             <ScrollArea className="h-full">
+                <div className="p-4 md:p-6" ref={(el) => el?.scrollTo(0, el.scrollHeight)}>
+                {messages.length === 0 && !isLoading && (
+                     <div className="flex h-[calc(100vh-150px)] items-center justify-center">
+                        <div className="text-center">
+                            <Bot className="mx-auto h-12 w-12 text-gray-400" />
+                            <h3 className="mt-2 text-sm font-medium text-foreground">T3.chat Clone</h3>
+                            <p className="mt-1 text-sm text-muted-foreground">Start a conversation by typing below.</p>
+                         </div>
                     </div>
-                  </div>
-                  <Trophy className="w-10 h-10 text-gray-300 mx-auto mb-3 mt-2" />
-                  <h4 className="text-white font-bold mb-2">2nd Place</h4>
-                  <div className="text-3xl font-bold text-white mb-1">
-                    $2,000
-                  </div>
-                  <p className="text-white/60 text-sm">Second Place Prize</p>
-                </div>
-
-                <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-6 text-center relative">
-                  <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
-                    <div className="bg-amber-600 text-white px-3 py-1 rounded-full text-xs font-bold">
-                      🥉 THIRD
-                    </div>
-                  </div>
-                  <Trophy className="w-10 h-10 text-amber-600 mx-auto mb-3 mt-2" />
-                  <h4 className="text-white font-bold mb-2">3rd Place</h4>
-                  <div className="text-3xl font-bold text-white mb-1">
-                    $1,000
-                  </div>
-                  <p className="text-white/60 text-sm">Third Place Prize</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Community Prize */}
-            <div className="bg-white/5 border border-white/10 rounded-xl p-8 text-center">
-              <Users className="w-12 h-12 text-purple-400 mx-auto mb-4" />
-              <h3 className="text-xl font-bold text-white mb-2">
-                Top 8 Finalists
-              </h3>
-              <div className="text-2xl font-bold text-purple-400 mb-2">
-                1 Year Free T3 Chat
-              </div>
-              <p className="text-white/60">
-                All finalists in the top 8 receive complimentary access to T3
-                Chat
-              </p>
-            </div>
-          </div>
+                )}
+                {messages.map(msg => <ChatMessage key={msg.id} message={msg} />)}
+                {isLoading && messages.length > 0 && messages[messages.length-1]?.role === 'user' && <LoadingChatMessage />}
+                 </div>
+            </ScrollArea>
         </div>
+        <ChatInput
+            input={input}
+            setInput={setInput}
+            onSendMessage={handleSendMessage}
+            isLoading={isLoading}
+        />
+      </SidebarInset>
+    </div>
+  );
+}
 
-        {/* Requirements Section */}
-        <div className="mb-20">
-          <h2 className="text-4xl font-bold text-white text-center mb-4">
-            Requirements
-          </h2>
 
-          <div className="max-w-4xl mx-auto">
-            <p className="text-white/70 text-lg mb-8 text-center">
-              Build a cool AI chat app. Have fun with it. Make it look and feel
-              however you like.
-            </p>
-            <div className="bg-white/5 border border-white/10 rounded-xl p-8 mb-8">
-              <div className="mb-6">
-                <h3 className="text-2xl font-bold text-white">
-                  Core Requirements
-                </h3>
-                <span className="text-white/60 text-sm">
-                  The minimum to qualify for a prize
-                </span>
-              </div>
+// --- Sub-Components ---
 
-              <div className="grid md:grid-cols-2 gap-8">
-                <div>
-                  <div className="flex items-start gap-3 mb-2">
-                    <MessageSquare className="w-6 h-6 text-white/70 mt-1 flex-shrink-0" />
-                    <div>
-                      <h4 className="text-white text-lg font-medium">
-                        Chat with Various LLMs
-                      </h4>
-                      <p className="text-white/50">
-                        Implement support for multiple language models and
-                        providers
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-white/70 ml-9">
-                    <CheckCircle className="w-4 h-4" />
-                    <span className="text-sm">Required</span>
-                  </div>
+function ChatMessage({ message }: { message: Message }) {
+  const isUser = message.role === 'user';
+  return (
+    <div className={cn("flex items-start gap-3 my-4", isUser ? "justify-end" : "justify-start")}>
+      {!isUser && (
+        <Avatar className="h-8 w-8">
+           <AvatarFallback><Bot /></AvatarFallback>
+        </Avatar>
+      )}
+      <div
+        className={cn(
+          "max-w-xl rounded-lg p-3 text-sm",
+          isUser
+            ? "bg-primary text-primary-foreground"
+            : "bg-muted"
+        )}
+      >
+        <p className="whitespace-pre-wrap">{message.text}</p>
+      </div>
+      {isUser && (
+         <Avatar className="h-8 w-8">
+            <AvatarFallback><User /></AvatarFallback>
+        </Avatar>
+      )}
+    </div>
+  );
+}
+
+function LoadingChatMessage() {
+    return (
+        <div className="flex items-start gap-3 my-4 justify-start">
+            <Avatar className="h-8 w-8">
+               <AvatarFallback><Bot /></AvatarFallback>
+            </Avatar>
+            <div className="bg-muted rounded-lg p-3 text-sm">
+                <div className="flex items-center gap-2">
+                    <div className="h-2 w-2 bg-foreground rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                    <div className="h-2 w-2 bg-foreground rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                    <div className="h-2 w-2 bg-foreground rounded-full animate-bounce"></div>
                 </div>
-
-                <div>
-                  <div className="flex items-start gap-3 mb-2">
-                    <Users className="w-6 h-6 text-white/70 mt-1 flex-shrink-0" />
-                    <div>
-                      <h4 className="text-white text-lg font-medium">
-                        Authentication & Sync
-                      </h4>
-                      <p className="text-white/50">
-                        User authentication with chat history synchronization
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-white/70 ml-9">
-                    <CheckCircle className="w-4 h-4" />
-                    <span className="text-sm">Required</span>
-                  </div>
-                </div>
-              </div>
             </div>
-
-            <div className="bg-white/5 border border-white/10 rounded-xl p-8">
-              <div className="mb-6">
-                <h3 className="text-2xl font-bold text-white">
-                  Bonus Features
-                </h3>
-                <span className="text-white/60 text-sm">
-                  Ideas to go above and beyond
-                </span>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-y-6 gap-x-8">
-                {[
-                  {
-                    icon: CloudUploadIcon,
-                    title: "Attachment Support",
-                    desc: "Allow users to upload files (images and pdfs)",
-                  },
-                  {
-                    icon: ImageIcon,
-                    title: "Image Generation Support",
-                    desc: "AI-powered image generation capabilities",
-                  },
-                  {
-                    icon: Code,
-                    title: "Syntax Highlighting",
-                    desc: "Beautiful code formatting and highlighting",
-                  },
-                  {
-                    icon: Zap,
-                    title: "Resumable Streams",
-                    desc: "Continue generation after page refresh",
-                  },
-                  {
-                    icon: GitBranch,
-                    title: "Chat Branching",
-                    desc: "Create alternative conversation paths",
-                  },
-                  {
-                    icon: Share,
-                    title: "Chat Sharing",
-                    desc: "Share conversations with others",
-                  },
-                  {
-                    icon: Search,
-                    title: "Web Search",
-                    desc: "Integrate real-time web search",
-                  },
-                  {
-                    icon: Sparkles,
-                    title: "Your Feature Ideas",
-                    desc: "Implement creative features of your own",
-                  },
-                ].map((feature, index) => (
-                  <div key={index} className="flex items-start gap-3">
-                    <feature.icon className="w-5 h-5 text-white/70 mt-1 flex-shrink-0" />
-                    <div>
-                      <h4 className="text-white font-medium">
-                        {feature.title}
-                      </h4>
-                      <p className="text-white/50 text-sm">{feature.desc}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
         </div>
+    );
+}
 
-        {/* Judges Section */}
-        <div className="mb-20">
-          <h2 className="text-4xl font-bold text-white text-center mb-4">
-            Meet the Judges
-          </h2>
 
-          <div className="max-w-4xl mx-auto">
-            <p className="text-white/70 text-lg mb-8 text-center">
-              These nerds will decide the winners. They have no formal criteria,
-              just vibes.
-            </p>
-          </div>
+function ChatInput({ input, setInput, onSendMessage, isLoading }: {
+    input: string;
+    setInput: (value: string) => void;
+    onSendMessage: () => void;
+    isLoading: boolean;
+}) {
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-          <div className="max-w-3xl mx-auto bg-white/5 border border-white/10 rounded-xl p-8">
-            <div className="grid md:grid-cols-3 gap-8">
-              {[
-                {
-                  name: "Theo",
-                  role: "Personality Hire",
-                  twitterHandle: "theo",
-                  avatar: "/avatars/theo-pic.jpg",
-                },
-                {
-                  name: "Mark",
-                  role: "Writes Theo's Code",
-                  twitterHandle: "r_marked",
-                  avatar: "/avatars/mark-pic.jpg",
-                },
-                {
-                  name: "Julius",
-                  role: "Actual Developer",
-                  twitterHandle: "jullerino",
-                  avatar: "/avatars/julius-pic.jpg",
-                },
-              ].map((judge, index) => (
-                <div key={index} className="text-center">
-                  <div className="w-20 h-20 bg-white/10 rounded-full mx-auto mb-4 flex items-center justify-center">
-                    <Image
-                      src={judge.avatar}
-                      width={80}
-                      height={80}
-                      alt="Avatar"
-                      className="rounded-full"
-                    />
-                  </div>
-                  <h3 className="text-white font-medium">{judge.name}</h3>
-                  <p className="text-white/50 text-sm mb-1">{judge.role}</p>
-                  <Link
-                    href={`https://x.com/${judge.twitterHandle}`}
-                    className="text-white/70 hover:text-white text-sm"
-                    target="_blank"
-                  >
-                    @{judge.twitterHandle.toLowerCase()}
-                  </Link>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+    const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            onSendMessage();
+        }
+    };
+    
+    // Auto-resize textarea
+    useEffect(() => {
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            const scrollHeight = textareaRef.current.scrollHeight;
+            textareaRef.current.style.height = `${scrollHeight}px`;
+        }
+    }, [input]);
 
-        {/* Rules Section */}
-        <div className="mb-20">
-          <h2 className="text-4xl font-bold text-white text-center mb-12">
-            Competition Rules
-          </h2>
-
-          <div className="max-w-4xl mx-auto bg-white/5 border border-white/10 rounded-xl p-8">
-            <div className="space-y-6">
-              <div className="flex items-start gap-3">
-                <CheckCircle className="w-5 h-5 text-white/70 mt-1 flex-shrink-0" />
-                <p className="text-white/90">
-                  <strong>Open Source Requirement:</strong> Submissions must be
-                  open source with a permissive license (MIT, Apache, BSD etc.)
-                  and hosted on GitHub
-                </p>
-              </div>
-
-              <div className="flex items-start gap-3">
-                <CheckCircle className="w-5 h-5 text-white/70 mt-1 flex-shrink-0" />
-                <p className="text-white/90">
-                  <strong>Age Requirement:</strong> Must be 18+ to be eligible
-                  for prizes
-                </p>
-              </div>
-
-              <div className="flex items-start gap-3">
-                <CheckCircle className="w-5 h-5 text-white/70 mt-1 flex-shrink-0" />
-                <p className="text-white/90">
-                  <strong>Team Size:</strong> No more than 4 people per team
-                </p>
-              </div>
-
-              <div className="flex items-start gap-3">
-                <CheckCircle className="w-5 h-5 text-white/70 mt-1 flex-shrink-0" />
-                <p className="text-white/90">
-                  <strong>Code of Conduct:</strong> Don't harass anyone please
-                </p>
-              </div>
-
-              <div className="flex items-start gap-3">
-                <CheckCircle className="w-5 h-5 text-white/70 mt-1 flex-shrink-0" />
-                <p className="text-white/90">
-                  <strong>Content Usage:</strong> Theo might use your submission
-                  for content btw
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* CTA Section */}
-        <div className="text-center max-w-2xl mx-auto">
-          <h2 className="text-3xl font-bold text-white mb-4">
-            Ready to Build?
-          </h2>
-          <p className="text-white/70 text-lg mb-8">
-            Join the T3 Chat Cloneathon and showcase your development skills.
-            Registration opens soon!
-          </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/register">
-              <Button
-                size="lg"
-                className="bg-purple-600 hover:bg-purple-700 text-white"
-              >
-                Register Now
-              </Button>
-            </Link>
-            <Link
-              href="https://github.com/t3dotgg/t3-cloneathon"
-              target="_blank"
-            >
-              <Button
-                variant="outline"
-                size="lg"
-                className="border-white/20 text-white hover:bg-white/5"
-              >
-                View GitHub
-              </Button>
-            </Link>
-          </div>
-
-          {/* Footer Links */}
-          <div className="mt-12 pt-8 border-t border-white/10 text-center">
-            <p className="text-white/40 text-sm">
-              By participating, you agree to our{" "}
-              <Link
-                href="/terms-and-conditions"
-                className="text-white/60 hover:text-white/80 underline underline-offset-2"
-              >
-                Terms and Conditions
-              </Link>
-            </p>
-          </div>
-        </div>
+    return (
+    <div className="bg-background p-4 border-t border-border">
+      <div className="relative">
+        <Textarea
+          ref={textareaRef}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Type a message..."
+          className="w-full resize-none pr-20 min-h-[40px] max-h-[200px]"
+          rows={1}
+          disabled={isLoading}
+        />
+        <Button
+          type="submit"
+          size="icon"
+          className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8"
+          onClick={onSendMessage}
+          disabled={isLoading || !input.trim()}
+        >
+          <Send className="h-4 w-4" />
+        </Button>
       </div>
     </div>
   );
 }
+
